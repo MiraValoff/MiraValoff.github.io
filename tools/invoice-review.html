@@ -1,0 +1,50 @@
+﻿<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Local invoice text to structured JSON demo."><title>Invoice Review | Mira Val</title>
+<style>html{color-scheme:dark}*{box-sizing:border-box}body{margin:0;background:#10131b;color:#eff3ff;font:16px/1.5 system-ui,sans-serif}main{max-width:960px;margin:auto;padding:32px 20px}a{color:#b9c7ff}h1{font-size:clamp(30px,6vw,48px);line-height:1.1}p{color:#c2cbdf}.brand{font-size:13px;letter-spacing:.15em;color:#bac8ff;font-weight:700}section{padding:20px;border:1px solid #35415a;border-radius:14px;background:#192231;margin:18px 0}textarea,pre{display:block;width:100%;border:1px solid #465571;background:#0e1520;color:#eaf0ff;border-radius:9px;padding:14px;font:14px/1.5 ui-monospace,monospace}textarea{min-height:200px;resize:vertical}pre{white-space:pre-wrap;overflow-wrap:anywhere}label{font-weight:700}.actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:12px}button{border:1px solid #52648d;background:#27354f;color:#fff;padding:10px 14px;border-radius:8px;font:inherit;cursor:pointer}button.primary{background:#b9c7ff;color:#111827;font-weight:700}button:disabled{opacity:.5;cursor:default}button:focus-visible,textarea:focus-visible{outline:3px solid #b9c7ff;outline-offset:2px}.small{font-size:13px}#status{min-height:24px;font-weight:700}.warning{color:#ffd194}.ok{color:#a1edc0}</style></head>
+<body><main><a href="../">Mira Val Studio</a><p class="brand">WORKFLOW DEMO / DOCUMENT AUTOMATION</p><h1>Invoice Review</h1><p>Turn explicitly labelled invoice text into structured JSON. Missing, invalid and conflicting fields are marked for human review instead of being guessed.</p>
+<section><label for="source">Invoice text</label><p class="small">Use the synthetic sample or paste redacted text from a digitally generated invoice. This browser demo does not upload files, use AI services, or perform OCR.</p><textarea id="source" spellcheck="false" placeholder="Invoice number: DEMO-001"></textarea><div class="actions"><button id="sample">Load sample</button><button id="validate" class="primary">Extract fields</button><button id="clear">Clear</button></div></section>
+<section><h2>Structured result</h2><p id="status" role="status" aria-live="polite">Ready.</p><pre id="result">No output yet.</pre><button id="download" disabled>Download JSON</button></section><p class="small">Prototype with synthetic data, not a client project or tax calculation. Only four labelled fields are supported. The separately tested Python workflow can read text-based PDFs; scanned documents require additional OCR or review. All browser processing is local.</p></main>
+<script>
+"use strict";
+const patterns={
+ invoice_id:/^invoice[ \t]*(?:number|no\.?|id)[ \t]*:[ \t]*([A-Za-z0-9_-]{1,64})[ \t]*$/gim,
+ invoice_date:/^invoice[ \t]+date[ \t]*:[ \t]*(\d{4}-\d{2}-\d{2})[ \t]*$/gim,
+ currency:/^currency[ \t]*:[ \t]*([A-Z]{3})[ \t]*$/gim,
+ total:/^(?:invoice[ \t]+)?total[ \t]*:[ \t]*([0-9]{1,10}(?:\.[0-9]{1,2})?)[ \t]*$/gim
+};
+function extract(text){
+ const fields={},issues=[];
+ text=text.replace(/\r\n?/g,"\n");
+ for(const [key,pattern] of Object.entries(patterns)){
+  const vals=[...new Set([...text.matchAll(pattern)].map(m=>m[1]))];
+  if(vals.length!==1){fields[key]=null;issues.push({field:key,reason:vals.length?"ambiguous":"missing"});continue;}
+  let v=vals[0],valid=true;
+  if(key==="invoice_date"){
+    const date=new Date(v+"T00:00:00Z");
+    valid=Number.isFinite(date.getTime())&&date.toISOString().slice(0,10)===v&&!v.startsWith("0000");
+  }else if(key==="currency"){
+    v=v.toUpperCase();valid=["USD","EUR","GBP","UAH"].includes(v);
+  }else if(key==="total"){
+    const [whole,fraction=""]=v.split(".");
+    v=whole.replace(/^0+(?=\d)/,"")+"."+fraction.padEnd(2,"0");
+  }
+  fields[key]=valid?v:null;
+  if(!valid)issues.push({field:key,reason:"invalid"});
+ }
+ return {status:issues.length?"review":"validated",fields,issues};
+}
+const $=id=>document.getElementById(id);
+let report=null;
+function reset(){report=null;$("result").textContent="No output yet.";$("status").textContent="Ready.";$("status").className="";$("download").disabled=true;}
+$("source").addEventListener("input",reset);
+$("sample").onclick=()=>{$("source").value="Invoice number: DEMO-001\nInvoice date: 2026-11-26\nCurrency: USD\nSubtotal: 100\nTax: 20\nTotal: 120\n";reset();};
+$("clear").onclick=()=>{$("source").value="";reset();};
+$("validate").onclick=()=>{
+ reset();
+ if($("source").value.length>1000000){$("status").textContent="Input too large (1 million characters maximum).";return;}
+ report=extract($("source").value);$("result").textContent=JSON.stringify(report,null,2);
+ $("status").textContent=report.status==="validated"?"Fields validated":"Human review required";
+ $("status").className=report.status==="validated"?"ok":"warning";$("download").disabled=false;
+};
+$("download").onclick=()=>{if(!report)return;const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:"application/json"}));const a=document.createElement("a");a.href=url;a.download="invoice-review.json";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+</script></body></html>
